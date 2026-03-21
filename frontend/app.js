@@ -90,7 +90,8 @@ async function extractPDF(file, onStatus) {
       canvas.width = viewport.width;
       canvas.height = viewport.height;
       await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
-      const { data: { text: pageText } } = await worker.recognize(canvas);
+      const imageDataUrl = canvas.toDataURL("image/png");
+      const { data: { text: pageText } } = await worker.recognize(imageDataUrl);
       ocrParts.push(pageText || "");
     }
   } finally {
