@@ -113,10 +113,10 @@ async function callAI(fileInfo, fields, model) {
 - 截止投标时间：查找"投标截止"、"投标文件递交截止"、"递标截止"附近日期
 
 字段格式约束（必须严格遵守）：
-- 标的金额：仅返回纯数字，单位统一换算为元，不附带任何单位文字。例如：文中"150万元"→返回"1500000"，"50,000元"→返回"50000"
-- 投标报名时间：格式 YYYY-MM-DD，例如"2024年3月15日"→"2024-03-15"
-- 正式投标时间：格式 YYYY-MM-DD
-- 截止投标时间：格式 YYYY-MM-DD
+- 标的金额：仅返回整数数字（不含小数、不含单位），单位统一换算为元后取整。例如："150万元"→"1500000"，"50,000.00元"→"50000"，"约50万"→"500000"。若文件中确实没有任何金额信息，返回"无"
+- 投标报名时间：仅返回日期，格式 YYYY-MM-DD，不含时分秒。若为时间范围则格式 YYYY-MM-DD:YYYY-MM-DD。例如："2026年1月23日至2026年1月29日"→"2026-01-23:2026-01-29"，"2026-02-03 09:30"→"2026-02-03"
+- 正式投标时间：同上，格式 YYYY-MM-DD，时间范围用 YYYY-MM-DD:YYYY-MM-DD，不含时分秒
+- 截止投标时间：同上，格式 YYYY-MM-DD，时间范围用 YYYY-MM-DD:YYYY-MM-DD，不含时分秒
 
 输出规范：严格返回纯 JSON，不包含任何解释文字或 Markdown。格式：{"字段名": "值"}
 注意：只有在文件中经过仔细搜索确实没有该信息时，才返回"未找到"。`;
@@ -230,6 +230,48 @@ async function validateAPI() {
       ? `<span class="vr-item vr-ok">✓ ${r.model}</span>`
       : `<span class="vr-item vr-error">✗ ${r.model}：${r.msg}</span>`
   ).join("");
+}
+
+// ===== 字段后处理（格式兜底）=====
+const DATE_FIELDS = ["投标报名时间", "正式投标时间", "截止投标时间"];
+
+function cleanDate(str) {
+  // 提取所有 YYYY-MM-DD 格式的日期（忽略后面的时分秒）
+  const matches = str.match(/\d{4}-\d{2}-\d{2}/g);
+  if (matches && matches.length >= 2) return matches[0] + ":" + matches[1];
+  if (matches && matches.length === 1) return matches[0];
+  // 尝试中文日期 YYYY年MM月DD日
+  const cn = str.match(/(\d{4})[年-](\d{1,2})[月-](\d{1,2})/g);
+  if (cn && cn.length >= 2) {
+    const fmt = (s) => s.replace(/(\d{4})[年-](\d{1,2})[月-](\d{1,2}).*/, (_, y, m, d) =>
+      `${y}-${m.padStart(2,"0")}-${d.padStart(2,"0")}`);
+    return fmt(cn[0]) + ":" + fmt(cn[1]);
+  }
+  if (cn && cn.length === 1) {
+    return cn[0].replace(/(\d{4})[年-](\d{1,2})[月-](\d{1,2}).*/, (_, y, m, d) =>
+      `${y}-${m.padStart(2,"0")}-${d.padStart(2,"0")}`);
+  }
+  return str; // 无法识别则原样返回
+}
+
+function cleanAmount(str) {
+  if (!str || str === "未找到" || str === "无") return "无";
+  // 提取数字（含小数）并换算单位
+  const s = str.replace(/,/g, "");
+  const wan = s.match(/([\d.]+)\s*万/);
+  if (wan) return String(Math.round(parseFloat(wan[1]) * 10000));
+  const yi = s.match(/([\d.]+)\s*亿/);
+  if (yi) return String(Math.round(parseFloat(yi[1]) * 100000000));
+  const num = s.match(/([\d.]+)/);
+  if (num) return String(Math.round(parseFloat(num[1])));
+  return "无";
+}
+
+function postProcess(fieldName, value) {
+  if (value === "未找到" || value === "解析失败" || value.startsWith("失败:")) return value;
+  if (fieldName === "标的金额") return cleanAmount(value);
+  if (DATE_FIELDS.includes(fieldName)) return cleanDate(value);
+  return value;
 }
 
 // ===== 状态 =====
@@ -379,7 +421,9 @@ async function analyze() {
       const normalized = {};
       for (const f of fields) {
         const v = result[f];
-        normalized[f] = v == null ? "未找到" : String(v);
+        let val = v == null ? "未找到" : String(v);
+        val = postProcess(f, val);
+        normalized[f] = val;
       }
       resultData.push({ filename: file.name, results: normalized, model: usedModel });
     } catch (err) {
