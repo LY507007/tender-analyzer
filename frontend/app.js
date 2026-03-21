@@ -34,9 +34,28 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
 
 // ===== 浏览器端文件处理 =====
 
-async function extractPDF(file) {
+// ===== Tesseract OCR 辅助函数 =====
+async function runOCR(canvasOrDataUrl, onStatus) {
+  const worker = await Tesseract.createWorker("chi_sim+eng", 1, {
+    logger: (m) => {
+      if (m.status === "loading language traineddata") {
+        const pct = Math.round((m.progress || 0) * 100);
+        onStatus?.(`正在下载中文语言包 ${pct}%（首次需要，后续缓存）...`);
+      } else if (m.status === "initializing api") {
+        onStatus?.("正在初始化 OCR 引擎...");
+      }
+    },
+  });
+  const { data: { text } } = await worker.recognize(canvasOrDataUrl);
+  await worker.terminate();
+  return text.trim();
+}
+
+async function extractPDF(file, onStatus) {
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+  // 先尝试提取文本
   const parts = [];
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
@@ -45,18 +64,30 @@ async function extractPDF(file) {
   }
   const text = parts.join("\n").trim();
 
-  // 扫描件（文本极少）→ 渲染首页为图片
-  if (text.length < 50) {
-    const page = await pdf.getPage(1);
-    const viewport = page.getViewport({ scale: 2 });
+  // 文字版 PDF → 直接返回文本
+  if (text.length >= 50) {
+    return { type: "text", content: text };
+  }
+
+  // 扫描件 → Tesseract OCR 逐页识别（最多 10 页）
+  const numPages = Math.min(pdf.numPages, 10);
+  onStatus?.("检测到扫描件，启动 OCR 识别...");
+
+  const ocrParts = [];
+  for (let i = 1; i <= numPages; i++) {
+    onStatus?.(`OCR 识别第 ${i} / ${numPages} 页...`);
+    const page = await pdf.getPage(i);
+    const viewport = page.getViewport({ scale: 2.5 });
     const canvas = document.createElement("canvas");
     canvas.width = viewport.width;
     canvas.height = viewport.height;
     await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
-    const base64 = canvas.toDataURL("image/png").split(",")[1];
-    return { type: "image", content: base64, mediaType: "image/png" };
+    const pageText = await runOCR(canvas, i === 1 ? onStatus : null);
+    ocrParts.push(pageText);
   }
-  return { type: "text", content: text };
+
+  const ocrText = ocrParts.join("\n").trim();
+  return { type: "text", content: ocrText || "（OCR 未识别到文字）" };
 }
 
 async function extractWord(file) {
@@ -65,25 +96,22 @@ async function extractWord(file) {
   return { type: "text", content: result.value };
 }
 
-async function extractImage(file) {
-  return new Promise((resolve) => {
+async function extractImage(file, onStatus) {
+  onStatus?.("正在 OCR 识别图片...");
+  const dataUrl = await new Promise((resolve) => {
     const reader = new FileReader();
-    reader.onload = () => {
-      resolve({
-        type: "image",
-        content: reader.result.split(",")[1],
-        mediaType: file.type || "image/png",
-      });
-    };
+    reader.onload = () => resolve(reader.result);
     reader.readAsDataURL(file);
   });
+  const text = await runOCR(dataUrl, onStatus);
+  return { type: "text", content: text || "（OCR 未识别到文字）" };
 }
 
-async function extractFileContent(file) {
+async function extractFileContent(file, onStatus) {
   const ext = file.name.split(".").pop().toLowerCase();
-  if (ext === "pdf") return extractPDF(file);
+  if (ext === "pdf") return extractPDF(file, onStatus);
   if (["doc", "docx"].includes(ext)) return extractWord(file);
-  return extractImage(file);
+  return extractImage(file, onStatus);
 }
 
 // ===== AI API 调用（指定模型）=====
@@ -124,16 +152,10 @@ async function callAI(fileInfo, fields, model) {
       { role: "user", content: `${userText}\n\n文件内容：\n${content}` },
     ];
   } else {
-    // 图片/扫描件 → 视觉模型
+    // 兜底：若 OCR 失败仍为图片类型（不应出现），提示用户
     messages = [
       { role: "system", content: systemPrompt },
-      {
-        role: "user",
-        content: [
-          { type: "image_url", image_url: { url: `data:${fileInfo.mediaType};base64,${fileInfo.content}` } },
-          { type: "text", text: userText },
-        ],
-      },
+      { role: "user", content: `${userText}\n\n（图片内容无法直接识别，请确保 OCR 正常运行）` },
     ];
   }
 
@@ -359,19 +381,11 @@ async function analyze() {
     loadingSub.textContent = file.name;
 
     try {
-      const fileInfo = await extractFileContent(file);
-      let aiResult;
-      // 优先使用文本模型 M2.7，失败时对图片内容降级到视觉模型
-      try {
-        aiResult = await callAI(fileInfo, fields, settings.textModel);
-      } catch (err) {
-        if (fileInfo.type === "image" && settings.visionModel) {
-          loadingSub.textContent = `${file.name}（切换视觉模型重试）`;
-          aiResult = await callAI(fileInfo, fields, settings.visionModel);
-        } else {
-          throw err;
-        }
-      }
+      const fileInfo = await extractFileContent(file, (msg) => {
+        loadingSub.textContent = msg;
+      });
+      loadingSub.textContent = `${file.name}（AI 提取字段中...）`;
+      const aiResult = await callAI(fileInfo, fields, settings.textModel);
       const { result, usedModel } = aiResult;
       const normalized = {};
       for (const f of fields) {
