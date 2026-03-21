@@ -15,7 +15,7 @@ const PROVIDERS = {
 
 // ===== 设置 =====
 const SETTINGS_KEY = "tenderSettings_v2";
-let settings = { kimiKey: "", minimaxKey: "", minimaxModel: "MiniMax-M1" };
+let settings = { kimiKey: "", minimaxKey: "", minimaxModel: "MiniMax-M1-2.5" };
 
 function loadSettings() {
   try {
