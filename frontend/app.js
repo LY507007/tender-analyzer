@@ -3,7 +3,7 @@ const MINIMAX_BASE_URL = "https://api.minimax.chat/v1";
 
 // ===== 设置 =====
 const SETTINGS_KEY = "tenderSettings_v3";
-let settings = { minimaxKey: "", textModel: "MiniMax-M2.7", visionModel: "MiniMax-VL-01" };
+let settings = { minimaxKey: "", textModel: "MiniMax-M2.7", visionModel: "MiniMax-M2.7" };
 
 function loadSettings() {
   try {
