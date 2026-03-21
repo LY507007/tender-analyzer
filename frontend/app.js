@@ -34,21 +34,27 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
 
 // ===== 浏览器端文件处理 =====
 
-// ===== Tesseract OCR 辅助函数 =====
-async function runOCR(canvasOrDataUrl, onStatus) {
-  const worker = await Tesseract.createWorker("chi_sim+eng", 1, {
-    logger: (m) => {
-      if (m.status === "loading language traineddata") {
-        const pct = Math.round((m.progress || 0) * 100);
-        onStatus?.(`正在下载中文语言包 ${pct}%（首次需要，后续缓存）...`);
-      } else if (m.status === "initializing api") {
-        onStatus?.("正在初始化 OCR 引擎...");
-      }
-    },
-  });
-  const { data: { text } } = await worker.recognize(canvasOrDataUrl);
-  await worker.terminate();
-  return text.trim();
+// ===== Tesseract OCR =====
+// 创建 worker（整个文件共用一个，避免重复初始化）
+async function createOCRWorker(onStatus) {
+  if (typeof Tesseract === "undefined") {
+    throw new Error("OCR 引擎未加载，请检查网络连接后刷新页面重试");
+  }
+  onStatus?.("正在初始化 OCR 引擎...");
+  try {
+    const worker = await Tesseract.createWorker("chi_sim+eng", 1, {
+      logger: (m) => {
+        if (m.status === "loading language traineddata") {
+          const pct = Math.round((m.progress || 0) * 100);
+          onStatus?.(`正在下载中文语言包 ${pct}%（首次约需1分钟，后续缓存）...`);
+        }
+      },
+    });
+    return worker;
+  } catch (e) {
+    const msg = e?.message || String(e) || "未知错误";
+    throw new Error("OCR 引擎初始化失败: " + msg);
+  }
 }
 
 async function extractPDF(file, onStatus) {
@@ -69,21 +75,26 @@ async function extractPDF(file, onStatus) {
     return { type: "text", content: text };
   }
 
-  // 扫描件 → Tesseract OCR 逐页识别（最多 10 页）
+  // 扫描件 → 创建一个 worker，逐页 OCR（最多 10 页）
   const numPages = Math.min(pdf.numPages, 10);
-  onStatus?.("检测到扫描件，启动 OCR 识别...");
+  onStatus?.(`检测到扫描件，共 ${numPages} 页，正在启动 OCR...`);
 
+  const worker = await createOCRWorker(onStatus);
   const ocrParts = [];
-  for (let i = 1; i <= numPages; i++) {
-    onStatus?.(`OCR 识别第 ${i} / ${numPages} 页...`);
-    const page = await pdf.getPage(i);
-    const viewport = page.getViewport({ scale: 2.5 });
-    const canvas = document.createElement("canvas");
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
-    const pageText = await runOCR(canvas, i === 1 ? onStatus : null);
-    ocrParts.push(pageText);
+  try {
+    for (let i = 1; i <= numPages; i++) {
+      onStatus?.(`OCR 识别第 ${i} / ${numPages} 页...`);
+      const page = await pdf.getPage(i);
+      const viewport = page.getViewport({ scale: 2.5 });
+      const canvas = document.createElement("canvas");
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+      const { data: { text: pageText } } = await worker.recognize(canvas);
+      ocrParts.push(pageText || "");
+    }
+  } finally {
+    await worker.terminate();
   }
 
   const ocrText = ocrParts.join("\n").trim();
@@ -103,8 +114,13 @@ async function extractImage(file, onStatus) {
     reader.onload = () => resolve(reader.result);
     reader.readAsDataURL(file);
   });
-  const text = await runOCR(dataUrl, onStatus);
-  return { type: "text", content: text || "（OCR 未识别到文字）" };
+  const worker = await createOCRWorker(onStatus);
+  try {
+    const { data: { text } } = await worker.recognize(dataUrl);
+    return { type: "text", content: text.trim() || "（OCR 未识别到文字）" };
+  } finally {
+    await worker.terminate();
+  }
 }
 
 async function extractFileContent(file, onStatus) {
@@ -394,10 +410,12 @@ async function analyze() {
       }
       resultData.push({ filename: file.name, results: normalized, model: usedModel });
     } catch (err) {
+      const errMsg = err?.message || String(err) || "未知错误";
+      console.error("[analyze error]", file.name, err);
       resultData.push({
         filename: file.name,
-        results: fields.reduce((acc, f) => ({ ...acc, [f]: `失败: ${err.message}` }), {}),
-        provider: null,
+        results: fields.reduce((acc, f) => ({ ...acc, [f]: `失败: ${errMsg}` }), {}),
+        model: null,
       });
     }
   }
