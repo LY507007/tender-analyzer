@@ -34,34 +34,11 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
 
 // ===== 浏览器端文件处理 =====
 
-// ===== Tesseract OCR =====
-// 创建 worker（整个文件共用一个，避免重复初始化）
-async function createOCRWorker(onStatus) {
-  if (typeof Tesseract === "undefined") {
-    throw new Error("OCR 引擎未加载，请检查网络连接后刷新页面重试");
-  }
-  onStatus?.("正在初始化 OCR 引擎...");
-  try {
-    const worker = await Tesseract.createWorker("chi_sim+eng", 1, {
-      logger: (m) => {
-        if (m.status === "loading language traineddata") {
-          const pct = Math.round((m.progress || 0) * 100);
-          onStatus?.(`正在下载中文语言包 ${pct}%（首次约需1分钟，后续缓存）...`);
-        }
-      },
-    });
-    return worker;
-  } catch (e) {
-    const msg = e?.message || String(e) || "未知错误";
-    throw new Error("OCR 引擎初始化失败: " + msg);
-  }
-}
-
 async function extractPDF(file, onStatus) {
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
 
-  // 先尝试提取文本
+  // 先尝试提取文字
   const parts = [];
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
@@ -75,31 +52,21 @@ async function extractPDF(file, onStatus) {
     return { type: "text", content: text };
   }
 
-  // 扫描件 → 创建一个 worker，逐页 OCR（最多 10 页）
+  // 扫描件 → 逐页渲染为 PNG 图片，交由视觉模型处理
   const numPages = Math.min(pdf.numPages, 10);
-  onStatus?.(`检测到扫描件，共 ${numPages} 页，正在启动 OCR...`);
-
-  const worker = await createOCRWorker(onStatus);
-  const ocrParts = [];
-  try {
-    for (let i = 1; i <= numPages; i++) {
-      onStatus?.(`OCR 识别第 ${i} / ${numPages} 页...`);
-      const page = await pdf.getPage(i);
-      const viewport = page.getViewport({ scale: 2.5 });
-      const canvas = document.createElement("canvas");
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
-      await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
-      const imageDataUrl = canvas.toDataURL("image/png");
-      const { data: { text: pageText } } = await worker.recognize(imageDataUrl);
-      ocrParts.push(pageText || "");
-    }
-  } finally {
-    await worker.terminate();
+  onStatus?.(`检测到扫描件，正在渲染 ${numPages} 页图片...`);
+  const pages = [];
+  for (let i = 1; i <= numPages; i++) {
+    onStatus?.(`渲染第 ${i} / ${numPages} 页...`);
+    const page = await pdf.getPage(i);
+    const viewport = page.getViewport({ scale: 2 });
+    const canvas = document.createElement("canvas");
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+    pages.push(canvas.toDataURL("image/png").split(",")[1]);
   }
-
-  const ocrText = ocrParts.join("\n").trim();
-  return { type: "text", content: ocrText || "（OCR 未识别到文字）" };
+  return { type: "images", pages, mediaType: "image/png" };
 }
 
 async function extractWord(file) {
@@ -109,19 +76,13 @@ async function extractWord(file) {
 }
 
 async function extractImage(file, onStatus) {
-  onStatus?.("正在 OCR 识别图片...");
-  const dataUrl = await new Promise((resolve) => {
+  onStatus?.("读取图片...");
+  const base64 = await new Promise((resolve) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
+    reader.onload = () => resolve(reader.result.split(",")[1]);
     reader.readAsDataURL(file);
   });
-  const worker = await createOCRWorker(onStatus);
-  try {
-    const { data: { text } } = await worker.recognize(dataUrl);
-    return { type: "text", content: text.trim() || "（OCR 未识别到文字）" };
-  } finally {
-    await worker.terminate();
-  }
+  return { type: "images", pages: [base64], mediaType: file.type || "image/png" };
 }
 
 async function extractFileContent(file, onStatus) {
@@ -169,10 +130,14 @@ async function callAI(fileInfo, fields, model) {
       { role: "user", content: `${userText}\n\n文件内容：\n${content}` },
     ];
   } else {
-    // 兜底：若 OCR 失败仍为图片类型（不应出现），提示用户
+    // 扫描件/图片 → 多图发给视觉模型
+    const imageContents = fileInfo.pages.map((base64) => ({
+      type: "image_url",
+      image_url: { url: `data:${fileInfo.mediaType};base64,${base64}` },
+    }));
     messages = [
       { role: "system", content: systemPrompt },
-      { role: "user", content: `${userText}\n\n（图片内容无法直接识别，请确保 OCR 正常运行）` },
+      { role: "user", content: [...imageContents, { type: "text", text: userText }] },
     ];
   }
 
@@ -401,8 +366,9 @@ async function analyze() {
       const fileInfo = await extractFileContent(file, (msg) => {
         loadingSub.textContent = msg;
       });
-      loadingSub.textContent = `${file.name}（AI 提取字段中...）`;
-      const aiResult = await callAI(fileInfo, fields, settings.textModel);
+      const model = fileInfo.type === "images" ? settings.visionModel : settings.textModel;
+      loadingSub.textContent = `${file.name}（${model} 提取字段中...）`;
+      const aiResult = await callAI(fileInfo, fields, model);
       const { result, usedModel } = aiResult;
       const normalized = {};
       for (const f of fields) {
