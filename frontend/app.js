@@ -152,19 +152,23 @@ async function callAI(fileInfo, fields, model) {
   }
 
   const data = await resp.json();
-  const raw = (data.choices[0].message.content || "").trim();
+  const raw = (data.choices?.[0]?.message?.content || "").trim();
+  console.log("[AI raw response]", raw);
 
-  let jsonStr = raw;
-  if (raw.includes("```")) {
-    const start = raw.indexOf("{");
-    const end = raw.lastIndexOf("}") + 1;
-    if (start !== -1 && end > start) jsonStr = raw.slice(start, end);
-  }
+  // 无论响应格式如何，始终从原始内容中提取 {...}
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}") + 1;
+  const jsonStr = (start !== -1 && end > start) ? raw.slice(start, end) : raw;
 
   try {
     return { result: JSON.parse(jsonStr), usedModel: model };
-  } catch (_) {
-    return { result: fields.reduce((acc, f) => ({ ...acc, [f]: "解析失败" }), {}), usedModel: model };
+  } catch (e) {
+    const preview = raw.slice(0, 120).replace(/\n/g, " ");
+    console.error("[JSON parse error]", e.message, "raw:", raw);
+    return {
+      result: fields.reduce((acc, f) => ({ ...acc, [f]: `解析失败: ${preview || "空响应"}` }), {}),
+      usedModel: model,
+    };
   }
 }
 
@@ -420,7 +424,7 @@ function renderResultTable(result) {
       td.title = value; // tooltip 显示完整内容
       if (value === "未找到") {
         td.innerHTML = `<span class="not-found">—</span>`;
-      } else if (value.startsWith("失败:") || value === "解析失败") {
+      } else if (value.startsWith("失败:") || value.startsWith("解析失败")) {
         td.innerHTML = `<span class="error-cell">${escapeHtml(value)}</span>`;
       } else {
         td.textContent = value;
