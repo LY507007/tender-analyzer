@@ -15,7 +15,7 @@ const PROVIDERS = {
 
 // ===== 设置 =====
 const SETTINGS_KEY = "tenderSettings_v2";
-let settings = { kimiKey: "", minimaxKey: "", minimaxModel: "MiniMax-Text-01" };
+let settings = { kimiKey: "", minimaxKey: "", minimaxModel: "MiniMax-M1" };
 
 function loadSettings() {
   try {
@@ -126,13 +126,26 @@ async function callAI(fileInfo, fields) {
 
   const prov = PROVIDERS[sel.provider];
   const fieldsStr = fields.join("、");
-  const systemPrompt =
-    "你是一个专业的招投标文件分析助手。请从用户提供的文件内容中提取指定字段的信息。" +
-    '如果某字段在文件中不存在或无法确认，请返回"未找到"。' +
-    "只返回 JSON 格式的结果，key 为字段名，value 为提取的值，不要包含其他内容。";
+
+  // 专业招投标文件提取 prompt —— 提供字段同义词和查找位置提示，大幅提升提取率
+  const systemPrompt = `你是专业的中国政府采购和招投标文件信息提取专家。请仔细阅读文件全文，精确提取指定字段。
+
+提取规则：
+- 招标公司/采购单位：查找"招标人"、"采购人"、"甲方"、"委托单位"、"采购单位"附近内容
+- 联系人：查找"联系人"、"经办人"、"联系方式"、"项目联系人"附近内容
+- 电话：查找"联系电话"、"咨询电话"、"询价电话"、"传真"附近的号码
+- 标的金额：查找"预算金额"、"最高限价"、"招标控制价"、"采购预算"、"预算总额"附近金额
+- 标的产品范围：查找"采购内容"、"采购项目"、"标的物"、"货物清单"、"服务内容"附近内容
+- 投标报名时间：查找"报名时间"、"报名截止"、"资格预审"附近日期
+- 正式投标时间/开标时间：查找"开标时间"、"开标日期"、"评标时间"附近日期
+- 截止投标时间：查找"投标截止"、"投标文件递交截止"、"递标截止"附近日期
+
+输出规范：严格返回纯 JSON，不包含任何解释文字或 Markdown。格式：{"字段名": "值"}
+注意：只有在文件中经过仔细搜索确实没有该信息时，才返回"未找到"。`;
+
   const userText =
-    `请从以下招投标文件中提取这些字段的信息：${fieldsStr}\n\n` +
-    `请以 JSON 格式返回，格式示例：{"字段名": "提取值"}`;
+    `请从以下招投标文件中提取这些字段：${fieldsStr}\n\n` +
+    `严格返回 JSON 格式，示例：{"字段名": "提取值"}`;
 
   let messages;
   if (fileInfo.type === "text") {
