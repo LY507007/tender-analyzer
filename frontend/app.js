@@ -1,21 +1,9 @@
 // ===== AI 服务商配置 =====
-const PROVIDERS = {
-  kimi: {
-    name: "Kimi",
-    baseUrl: "https://api.moonshot.cn/v1",
-    defaultModel: "moonshot-v1-128k",
-    supportsVision: false,
-  },
-  minimax: {
-    name: "MiniMax",
-    baseUrl: "https://api.minimax.chat/v1",
-    supportsVision: true,
-  },
-};
+const MINIMAX_BASE_URL = "https://api.minimax.chat/v1";
 
 // ===== 设置 =====
-const SETTINGS_KEY = "tenderSettings_v2";
-let settings = { kimiKey: "", minimaxKey: "", minimaxModel: "MiniMax-M1-2.5" };
+const SETTINGS_KEY = "tenderSettings_v3";
+let settings = { minimaxKey: "", textModel: "MiniMax-M2.7", visionModel: "MiniMax-VL-01" };
 
 function loadSettings() {
   try {
@@ -31,17 +19,9 @@ function saveSettingsToStorage() {
 function updateStatusBar() {
   const dot = document.getElementById("status-dot");
   const text = document.getElementById("status-text");
-  const both = settings.kimiKey && settings.minimaxKey;
-  const any = settings.kimiKey || settings.minimaxKey;
-  if (both) {
+  if (settings.minimaxKey) {
     dot.className = "status-dot ok";
-    text.textContent = "Kimi + MiniMax 已配置";
-  } else if (settings.kimiKey) {
-    dot.className = "status-dot partial";
-    text.textContent = "Kimi 已配置（未配置 MiniMax）";
-  } else if (settings.minimaxKey) {
-    dot.className = "status-dot partial";
-    text.textContent = "MiniMax 已配置（未配置 Kimi）";
+    text.textContent = "MiniMax 已配置";
   } else {
     dot.className = "status-dot warn";
     text.textContent = "未配置 API Key";
@@ -106,25 +86,19 @@ async function extractFileContent(file) {
   return extractImage(file);
 }
 
-// ===== 智能选择 API =====
-// 文本 → Kimi（优先，长文档强）；图片/扫描件 → MiniMax（视觉）
+// ===== 智能选择模型 =====
+// 文本（PDF/Word）→ MiniMax-M2.7；图片/扫描件 → MiniMax-VL-01
 function selectProvider(fileInfo) {
-  if (fileInfo.type === "image") {
-    if (settings.minimaxKey) return { provider: "minimax", key: settings.minimaxKey, model: settings.minimaxModel };
-    if (settings.kimiKey) return { provider: "kimi", key: settings.kimiKey, model: PROVIDERS.kimi.defaultModel };
-  } else {
-    if (settings.kimiKey) return { provider: "kimi", key: settings.kimiKey, model: PROVIDERS.kimi.defaultModel };
-    if (settings.minimaxKey) return { provider: "minimax", key: settings.minimaxKey, model: settings.minimaxModel };
-  }
-  return null;
+  if (!settings.minimaxKey) return null;
+  const model = fileInfo.type === "image" ? settings.visionModel : settings.textModel;
+  return { key: settings.minimaxKey, model };
 }
 
 // ===== AI API 调用 =====
 async function callAI(fileInfo, fields) {
   const sel = selectProvider(fileInfo);
-  if (!sel) throw new Error("请先配置 API Key");
+  if (!sel) throw new Error("请先配置 MiniMax API Key");
 
-  const prov = PROVIDERS[sel.provider];
   const fieldsStr = fields.join("、");
 
   // 专业招投标文件提取 prompt —— 提供字段同义词和查找位置提示，大幅提升提取率
@@ -157,7 +131,8 @@ async function callAI(fileInfo, fields) {
       { role: "system", content: systemPrompt },
       { role: "user", content: `${userText}\n\n文件内容：\n${content}` },
     ];
-  } else if (prov.supportsVision) {
+  } else {
+    // 图片/扫描件 → MiniMax-VL-01 视觉识别
     messages = [
       { role: "system", content: systemPrompt },
       {
@@ -168,15 +143,9 @@ async function callAI(fileInfo, fields) {
         ],
       },
     ];
-  } else {
-    // Kimi 不支持视觉但被选为 fallback
-    messages = [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: `${userText}\n\n（注：图片文件无法提取文字，请配置 MiniMax API Key 以启用 OCR 识别）` },
-    ];
   }
 
-  const resp = await fetch(`${prov.baseUrl}/chat/completions`, {
+  const resp = await fetch(`${MINIMAX_BASE_URL}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -201,9 +170,9 @@ async function callAI(fileInfo, fields) {
   }
 
   try {
-    return { result: JSON.parse(jsonStr), usedProvider: sel.provider };
+    return { result: JSON.parse(jsonStr), usedModel: sel.model };
   } catch (_) {
-    return { result: fields.reduce((acc, f) => ({ ...acc, [f]: "解析失败" }), {}), usedProvider: sel.provider };
+    return { result: fields.reduce((acc, f) => ({ ...acc, [f]: "解析失败" }), {}), usedModel: sel.model };
   }
 }
 
@@ -244,9 +213,9 @@ const closeSettingsBtn  = document.getElementById("close-settings");
 const cancelSettingsBtn = document.getElementById("cancel-settings");
 const saveSettingsBtn   = document.getElementById("save-settings");
 const settingsModal     = document.getElementById("settings-modal");
-const kimiKeyInput      = document.getElementById("kimi-key-input");
 const minimaxKeyInput   = document.getElementById("minimax-key-input");
-const minimaxModelSel   = document.getElementById("minimax-model-select");
+const textModelSel      = document.getElementById("text-model-select");
+const visionModelSel    = document.getElementById("vision-model-select");
 
 // ===== 初始化 =====
 loadSettings();
@@ -327,7 +296,7 @@ fieldInput.addEventListener("keydown", (e) => { if (e.key === "Enter") addField(
 analyzeBtn.addEventListener("click", analyze);
 
 async function analyze() {
-  if (!settings.kimiKey && !settings.minimaxKey) { openSettings(); return; }
+  if (!settings.minimaxKey) { openSettings(); return; }
   if (uploadedFiles.length === 0) { alert("请先上传招投标文件"); return; }
   if (fields.length === 0) { alert("请至少添加一个提取字段"); return; }
 
@@ -344,13 +313,13 @@ async function analyze() {
 
     try {
       const fileInfo = await extractFileContent(file);
-      const { result, usedProvider } = await callAI(fileInfo, fields);
+      const { result, usedModel } = await callAI(fileInfo, fields);
       const normalized = {};
       for (const f of fields) {
         const v = result[f];
         normalized[f] = v == null ? "未找到" : String(v);
       }
-      resultData.push({ filename: file.name, results: normalized, provider: usedProvider });
+      resultData.push({ filename: file.name, results: normalized, model: usedModel });
     } catch (err) {
       resultData.push({
         filename: file.name,
@@ -438,20 +407,19 @@ document.querySelectorAll(".key-toggle").forEach((btn) => {
 });
 
 saveSettingsBtn.addEventListener("click", () => {
-  settings.kimiKey = kimiKeyInput.value.trim();
   settings.minimaxKey = minimaxKeyInput.value.trim();
-  settings.minimaxModel = minimaxModelSel.value;
+  settings.textModel = textModelSel.value;
+  settings.visionModel = visionModelSel.value;
   saveSettingsToStorage();
   updateStatusBar();
   closeModal();
 });
 
 function openSettings() {
-  kimiKeyInput.value = settings.kimiKey;
-  kimiKeyInput.type = "password";
   minimaxKeyInput.value = settings.minimaxKey;
   minimaxKeyInput.type = "password";
-  minimaxModelSel.value = settings.minimaxModel;
+  textModelSel.value = settings.textModel;
+  visionModelSel.value = settings.visionModel;
   settingsModal.hidden = false;
 }
 
