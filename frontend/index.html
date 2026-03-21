@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>招投标文件智能分析</title>
+  <title>震坤行招投标附件智能分析</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -12,11 +12,8 @@
   <header class="topbar">
     <div class="topbar-inner">
       <div class="topbar-brand">
-        <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-          <rect width="28" height="28" rx="6" fill="#2563eb"/>
-          <path d="M7 9h14M7 14h10M7 19h12" stroke="white" stroke-width="2" stroke-linecap="round"/>
-        </svg>
-        <span class="brand-name">招投标智能分析</span>
+        <img src="logo.png" alt="震坤行" class="brand-logo" />
+        <span class="brand-name">震坤行招投标附件智能分析</span>
       </div>
       <div class="topbar-right">
         <div class="api-status" id="api-status">
@@ -48,6 +45,7 @@
           </div>
           <h2 class="panel-title">上传文件</h2>
           <span class="panel-count" id="file-count">0 个文件</span>
+          <button class="btn-clear" id="clear-files" hidden>清空</button>
         </div>
 
         <div class="drop-zone" id="drop-zone">
@@ -63,13 +61,14 @@
               accept=".pdf,.docx,.doc,.png,.jpg,.jpeg,.bmp,.gif,.tiff,.webp" hidden />
           </div>
           <div class="drop-hint-bar">
-            <span>PDF</span><span class="sep">·</span>
-            <span>Word（docx）</span><span class="sep">·</span>
-            <span>图片（PNG / JPG 等）</span>
+            <span>PDF · Word（docx）· 图片</span>
+            <span class="sep">|</span>
+            <span class="hint-auto">PDF/文档 → Kimi &nbsp;·&nbsp; 图片/扫描件 → MiniMax</span>
           </div>
         </div>
 
-        <ul class="file-list" id="file-list"></ul>
+        <!-- 紧凑型文件标签列表 -->
+        <div class="file-chips" id="file-chips"></div>
       </section>
 
       <!-- 右侧：字段配置 -->
@@ -155,35 +154,64 @@
       </div>
 
       <div class="modal-body">
-        <div class="form-group">
-          <label class="form-label">AI 服务商</label>
-          <div class="provider-tabs">
-            <button class="provider-tab active" data-provider="minimax">MiniMax</button>
-            <button class="provider-tab" data-provider="kimi">Kimi（月之暗面）</button>
+        <div class="api-route-info">
+          <div class="route-item">
+            <span class="route-badge blue">PDF · Word</span>
+            <span class="route-arrow">→</span>
+            <span class="route-target">Kimi（长文本，高精度）</span>
+          </div>
+          <div class="route-item">
+            <span class="route-badge purple">图片 · 扫描件</span>
+            <span class="route-arrow">→</span>
+            <span class="route-target">MiniMax（视觉识别）</span>
           </div>
         </div>
 
         <div class="form-group">
-          <label class="form-label" for="api-key-input">API Key</label>
+          <label class="form-label">
+            <span class="label-badge kimi">Kimi</span>
+            Kimi API Key
+            <span class="form-label-hint">月之暗面 · 用于 PDF / Word 文档</span>
+          </label>
           <div class="key-input-wrap">
-            <input type="password" id="api-key-input" class="form-input"
-              placeholder="请输入 API Key" autocomplete="off" />
-            <button class="key-toggle" id="key-toggle" title="显示/隐藏">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" id="eye-icon">
+            <input type="password" id="kimi-key-input" class="form-input"
+              placeholder="sk-..." autocomplete="off" />
+            <button class="key-toggle" data-target="kimi-key-input">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                 <ellipse cx="8" cy="8" rx="7" ry="4.5" stroke="currentColor" stroke-width="1.4"/>
                 <circle cx="8" cy="8" r="2" fill="currentColor"/>
               </svg>
             </button>
           </div>
-          <p class="form-hint">Key 仅保存在本地浏览器，不会上传到任何服务器</p>
         </div>
 
         <div class="form-group">
-          <label class="form-label" for="model-select">模型</label>
-          <select id="model-select" class="form-select"></select>
+          <label class="form-label">
+            <span class="label-badge minimax">MiniMax</span>
+            MiniMax API Key
+            <span class="form-label-hint">用于图片 / 扫描件 OCR</span>
+          </label>
+          <div class="key-input-wrap">
+            <input type="password" id="minimax-key-input" class="form-input"
+              placeholder="请输入 MiniMax API Key" autocomplete="off" />
+            <button class="key-toggle" data-target="minimax-key-input">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <ellipse cx="8" cy="8" rx="7" ry="4.5" stroke="currentColor" stroke-width="1.4"/>
+                <circle cx="8" cy="8" r="2" fill="currentColor"/>
+              </svg>
+            </button>
+          </div>
         </div>
 
-        <div class="provider-note" id="provider-note"></div>
+        <div class="form-group">
+          <label class="form-label">MiniMax 模型</label>
+          <select id="minimax-model-select" class="form-select">
+            <option value="MiniMax-Text-01">MiniMax-Text-01（推荐）</option>
+            <option value="abab6.5s-chat">abab6.5s-chat</option>
+          </select>
+        </div>
+
+        <p class="form-hint">API Key 仅保存在本地浏览器，不会上传至任何服务器</p>
       </div>
 
       <div class="modal-foot">
@@ -193,7 +221,6 @@
     </div>
   </div>
 
-  <!-- CDN 脚本 -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
