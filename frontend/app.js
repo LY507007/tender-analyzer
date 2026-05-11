@@ -1,9 +1,11 @@
 // ===== AI 服务商配置 =====
-const MINIMAX_BASE_URL = "https://api.minimax.chat/v1";
+const KIMI_BASE_URL = "https://api.moonshot.cn/v1";
+const KIMI_MODEL = "kimi-k2.6";
+const KIMI_MODEL_LABEL = "Kimi K2.6";
 
 // ===== 设置 =====
-const SETTINGS_KEY = "tenderSettings_v3";
-let settings = { minimaxKey: "", textModel: "MiniMax-M2.7", visionModel: "MiniMax-M2.7" };
+const SETTINGS_KEY = "tenderSettings_kimi_v1";
+let settings = { kimiKey: "" };
 
 function loadSettings() {
   try {
@@ -19,9 +21,9 @@ function saveSettingsToStorage() {
 function updateStatusBar() {
   const dot = document.getElementById("status-dot");
   const text = document.getElementById("status-text");
-  if (settings.minimaxKey) {
+  if (settings.kimiKey) {
     dot.className = "status-dot ok";
-    text.textContent = "MiniMax 已配置";
+    text.textContent = "Kimi 已配置";
   } else {
     dot.className = "status-dot warn";
     text.textContent = "未配置 API Key";
@@ -95,10 +97,9 @@ async function extractFileContent(file, onStatus) {
   return extractImage(file, onStatus);
 }
 
-// ===== AI API 调用（指定模型）=====
-// 路由策略：优先文本模型 M2.7；如失败且内容为图片，自动降级到视觉模型 VL-01
-async function callAI(fileInfo, fields, model) {
-  if (!settings.minimaxKey) throw new Error("请先配置 MiniMax API Key");
+// ===== AI API 调用 =====
+async function callAI(fileInfo, fields) {
+  if (!settings.kimiKey) throw new Error("请先配置 Kimi API Key");
 
   const fieldsStr = fields.join("、");
 
@@ -150,13 +151,18 @@ async function callAI(fileInfo, fields, model) {
     ];
   }
 
-  const resp = await fetch(`${MINIMAX_BASE_URL}/chat/completions`, {
+  const resp = await fetch(`${KIMI_BASE_URL}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${settings.minimaxKey}`,
+      Authorization: `Bearer ${settings.kimiKey}`,
     },
-    body: JSON.stringify({ model, messages, max_tokens: 2048 }),
+    body: JSON.stringify({
+      model: KIMI_MODEL,
+      messages,
+      max_tokens: 4096,
+      thinking: { type: "disabled" },
+    }),
   });
 
   if (!resp.ok) {
@@ -174,22 +180,20 @@ async function callAI(fileInfo, fields, model) {
   const jsonStr = (start !== -1 && end > start) ? raw.slice(start, end) : raw;
 
   try {
-    return { result: JSON.parse(jsonStr), usedModel: model };
+    return { result: JSON.parse(jsonStr), usedModel: data.model || KIMI_MODEL };
   } catch (e) {
     const preview = raw.slice(0, 120).replace(/\n/g, " ");
     console.error("[JSON parse error]", e.message, "raw:", raw);
     return {
       result: fields.reduce((acc, f) => ({ ...acc, [f]: `解析失败: ${preview || "空响应"}` }), {}),
-      usedModel: model,
+      usedModel: data.model || KIMI_MODEL,
     };
   }
 }
 
 // ===== API 可用性验证 =====
 async function validateAPI() {
-  const key = minimaxKeyInput.value.trim();
-  const textModel = textModelSel.value;
-  const visionModel = visionModelSel.value;
+  const key = kimiKeyInput.value.trim();
   const resultEl = document.getElementById("validate-result");
   const btn = document.getElementById("validate-btn");
 
@@ -204,35 +208,30 @@ async function validateAPI() {
   resultEl.hidden = false;
   resultEl.innerHTML = `<span class="vr-item vr-pending">正在测试...</span>`;
 
-  const models = [...new Set([textModel, visionModel])];
-  const results = [];
-
-  for (const model of models) {
-    try {
-      const resp = await fetch(`${MINIMAX_BASE_URL}/chat/completions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-        body: JSON.stringify({ model, messages: [{ role: "user", content: "hi" }], max_tokens: 5 }),
-      });
-      const data = await resp.json().catch(() => ({}));
-      if (resp.ok || data.choices) {
-        results.push({ model, ok: true });
-      } else {
-        const msg = data.error?.message || data.message || `HTTP ${resp.status}`;
-        results.push({ model, ok: false, msg });
-      }
-    } catch (e) {
-      results.push({ model, ok: false, msg: e.message });
+  try {
+    const resp = await fetch(`${KIMI_BASE_URL}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+      body: JSON.stringify({
+        model: KIMI_MODEL,
+        messages: [{ role: "user", content: "请回复 OK" }],
+        max_tokens: 16,
+        thinking: { type: "disabled" },
+      }),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (resp.ok || data.choices) {
+      resultEl.innerHTML = `<span class="vr-item vr-ok">✓ ${KIMI_MODEL_LABEL}</span>`;
+    } else {
+      const msg = data.error?.message || data.message || `HTTP ${resp.status}`;
+      resultEl.innerHTML = `<span class="vr-item vr-error">✗ ${KIMI_MODEL_LABEL}：${msg}</span>`;
     }
+  } catch (e) {
+    resultEl.innerHTML = `<span class="vr-item vr-error">✗ ${KIMI_MODEL_LABEL}：${e.message}</span>`;
   }
 
   btn.disabled = false;
   btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1.4"/><path d="M4.5 7l2 2 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg> 验证模型可用性`;
-  resultEl.innerHTML = results.map(r =>
-    r.ok
-      ? `<span class="vr-item vr-ok">✓ ${r.model}</span>`
-      : `<span class="vr-item vr-error">✗ ${r.model}：${r.msg}</span>`
-  ).join("");
 }
 
 // ===== 字段后处理（格式兜底）=====
@@ -314,9 +313,7 @@ const closeSettingsBtn  = document.getElementById("close-settings");
 const cancelSettingsBtn = document.getElementById("cancel-settings");
 const saveSettingsBtn   = document.getElementById("save-settings");
 const settingsModal     = document.getElementById("settings-modal");
-const minimaxKeyInput   = document.getElementById("minimax-key-input");
-const textModelSel      = document.getElementById("text-model-select");
-const visionModelSel    = document.getElementById("vision-model-select");
+const kimiKeyInput      = document.getElementById("kimi-key-input");
 const validateBtn       = document.getElementById("validate-btn");
 
 // ===== 初始化 =====
@@ -407,7 +404,7 @@ fieldInput.addEventListener("keydown", (e) => { if (e.key === "Enter") addField(
 analyzeBtn.addEventListener("click", analyze);
 
 async function analyze() {
-  if (!settings.minimaxKey) { openSettings(); return; }
+  if (!settings.kimiKey) { openSettings(); return; }
   if (uploadedFiles.length === 0) { alert("请先上传招投标文件"); return; }
   if (fields.length === 0) { alert("请至少添加一个提取字段"); return; }
 
@@ -426,9 +423,8 @@ async function analyze() {
       const fileInfo = await extractFileContent(file, (msg) => {
         loadingSub.textContent = msg;
       });
-      const model = fileInfo.type === "images" ? settings.visionModel : settings.textModel;
-      loadingSub.textContent = `${file.name}（${model} 提取字段中...）`;
-      const aiResult = await callAI(fileInfo, fields, model);
+      loadingSub.textContent = `${file.name}（${KIMI_MODEL_LABEL} 提取字段中...）`;
+      const aiResult = await callAI(fileInfo, fields);
       const { result, usedModel } = aiResult;
       const normalized = {};
       for (const f of fields) {
@@ -528,19 +524,15 @@ document.querySelectorAll(".key-toggle").forEach((btn) => {
 });
 
 saveSettingsBtn.addEventListener("click", () => {
-  settings.minimaxKey = minimaxKeyInput.value.trim();
-  settings.textModel = textModelSel.value;
-  settings.visionModel = visionModelSel.value;
+  settings.kimiKey = kimiKeyInput.value.trim();
   saveSettingsToStorage();
   updateStatusBar();
   closeModal();
 });
 
 function openSettings() {
-  minimaxKeyInput.value = settings.minimaxKey;
-  minimaxKeyInput.type = "password";
-  textModelSel.value = settings.textModel;
-  visionModelSel.value = settings.visionModel;
+  kimiKeyInput.value = settings.kimiKey;
+  kimiKeyInput.type = "password";
   document.getElementById("validate-result").hidden = true;
   settingsModal.hidden = false;
 }
