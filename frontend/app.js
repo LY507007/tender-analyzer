@@ -88,7 +88,10 @@ async function extractImage(file, onStatus) {
 async function extractFileContent(file, onStatus) {
   const ext = file.name.split(".").pop().toLowerCase();
   if (ext === "pdf") return extractPDF(file, onStatus);
-  if (["doc", "docx"].includes(ext)) return extractWord(file);
+  if (ext === "doc") {
+    throw new Error("暂不支持旧版 .doc 文件，请先在 Word/WPS 中另存为 .docx 或 PDF 后再上传");
+  }
+  if (ext === "docx") return extractWord(file);
   return extractImage(file, onStatus);
 }
 
@@ -330,10 +333,19 @@ fileInput.addEventListener("change", () => { addFiles(fileInput.files); fileInpu
 clearFilesBtn.addEventListener("click", () => { uploadedFiles = []; renderFileChips(); });
 
 function addFiles(files) {
+  const blocked = [];
   for (const f of files) {
+    const ext = f.name.split(".").pop().toLowerCase();
+    if (ext === "doc") {
+      blocked.push(f.name);
+      continue;
+    }
     if (!uploadedFiles.find((u) => u.name === f.name && u.size === f.size)) uploadedFiles.push(f);
   }
   renderFileChips();
+  if (blocked.length) {
+    alert(`以下文件是旧版 .doc 格式，浏览器端无法直接解析，请先另存为 .docx 或 PDF 后再上传：\n\n${blocked.join("\n")}`);
+  }
 }
 
 function removeFile(index) {
@@ -344,7 +356,7 @@ function removeFile(index) {
 function fileTypeInfo(name) {
   const ext = name.split(".").pop().toLowerCase();
   if (ext === "pdf") return { label: "PDF", cls: "pdf" };
-  if (["doc", "docx"].includes(ext)) return { label: "DOC", cls: "doc" };
+  if (ext === "docx") return { label: "DOC", cls: "doc" };
   return { label: "IMG", cls: "img" };
 }
 
