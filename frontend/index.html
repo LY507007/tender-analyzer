@@ -64,7 +64,7 @@
           <div class="drop-hint-bar">
             <span>PDF · Word（doc/docx）· 图片</span>
             <span class="sep">|</span>
-            <span class="hint-auto">文字PDF/Word/图片 → Kimi K2.6</span>
+            <span class="hint-auto">文字PDF/Word/图片 → Kimi Code (K2.6)</span>
           </div>
         </div>
 
@@ -162,12 +162,12 @@
           <div class="route-item">
             <span class="route-badge blue">PDF · Word</span>
             <span class="route-arrow">→</span>
-            <span class="route-target">Kimi K2.6</span>
+            <span class="route-target">Kimi Code (K2.6)</span>
           </div>
           <div class="route-item">
             <span class="route-badge purple">图片 · 扫描件</span>
             <span class="route-arrow">→</span>
-            <span class="route-target">Kimi K2.6</span>
+            <span class="route-target">Kimi Code (K2.6)</span>
           </div>
         </div>
 
@@ -178,7 +178,7 @@
           </label>
           <div class="key-input-wrap">
             <input type="password" id="kimi-key-input" class="form-input"
-              placeholder="请输入 Kimi API Key" autocomplete="off" />
+              placeholder="请输入 Kimi Coding Plan API Key" autocomplete="off" />
             <button class="key-toggle" data-target="kimi-key-input">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                 <ellipse cx="8" cy="8" rx="7" ry="4.5" stroke="currentColor" stroke-width="1.4"/>
@@ -189,8 +189,14 @@
         </div>
 
         <div class="form-group">
-          <label class="form-label">调用模型 <span class="form-label-hint">Kimi API</span></label>
-          <div class="form-static">Kimi K2.6</div>
+          <label class="form-label">代理地址 <span class="form-label-hint">GitHub Pages 需要代理转发</span></label>
+          <input type="url" id="proxy-url-input" class="form-input"
+            placeholder="https://your-worker.workers.dev" autocomplete="off" />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">调用模型 <span class="form-label-hint">Kimi Coding Plan</span></label>
+          <div class="form-static">Kimi Code (K2.6)</div>
         </div>
 
         <div class="form-group validate-group">
@@ -204,7 +210,7 @@
           <div id="validate-result" class="validate-result" hidden></div>
         </div>
 
-        <p class="form-hint">API Key 仅保存在本地浏览器，不会上传至任何服务器</p>
+        <p class="form-hint">API Key 保存在本地浏览器；验证和分析时会经你配置的代理转发到 Kimi Code API</p>
       </div>
 
       <div class="modal-foot">

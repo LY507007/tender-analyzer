@@ -1,11 +1,22 @@
 // ===== AI 服务商配置 =====
-const KIMI_BASE_URL = "https://api.moonshot.cn/v1";
-const KIMI_MODEL = "kimi-k2.6";
-const KIMI_MODEL_LABEL = "Kimi K2.6";
+const KIMI_BASE_URL = "https://api.kimi.com/coding/v1";
+const KIMI_MODEL = "kimi-for-coding";
+const KIMI_MODEL_LABEL = "Kimi Code (K2.6)";
+const KIMI_PROXY_REQUIRED_MESSAGE = "Kimi Coding Plan API 不支持 GitHub Pages 直接跨域调用，请先填写代理地址。";
 
 // ===== 设置 =====
-const SETTINGS_KEY = "tenderSettings_kimi_v1";
-let settings = { kimiKey: "" };
+const SETTINGS_KEY = "tenderSettings_kimi_code_v1";
+let settings = { kimiKey: "", proxyUrl: "" };
+
+function normalizeKimiEndpoint(url) {
+  const trimmed = String(url || "").trim().replace(/\/+$/, "");
+  if (!trimmed) return "";
+  return trimmed.endsWith("/chat/completions") ? trimmed : `${trimmed}/chat/completions`;
+}
+
+function getKimiEndpoint() {
+  return normalizeKimiEndpoint(settings.proxyUrl) || `${KIMI_BASE_URL}/chat/completions`;
+}
 
 function loadSettings() {
   try {
@@ -107,6 +118,7 @@ async function extractFileContent(file, onStatus) {
 // ===== AI API 调用 =====
 async function callAI(fileInfo, fields) {
   if (!settings.kimiKey) throw new Error("请先配置 Kimi API Key");
+  if (!settings.proxyUrl) throw new Error(KIMI_PROXY_REQUIRED_MESSAGE);
 
   const fieldsStr = fields.join("、");
 
@@ -158,7 +170,7 @@ async function callAI(fileInfo, fields) {
     ];
   }
 
-  const resp = await fetch(`${KIMI_BASE_URL}/chat/completions`, {
+  const resp = await fetch(getKimiEndpoint(), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -201,6 +213,7 @@ async function callAI(fileInfo, fields) {
 // ===== API 可用性验证 =====
 async function validateAPI() {
   const key = kimiKeyInput.value.trim();
+  const proxyUrl = proxyUrlInput.value.trim();
   const resultEl = document.getElementById("validate-result");
   const btn = document.getElementById("validate-btn");
 
@@ -210,13 +223,19 @@ async function validateAPI() {
     return;
   }
 
+  if (!proxyUrl) {
+    resultEl.hidden = false;
+    resultEl.innerHTML = `<span class="vr-item vr-error">${KIMI_PROXY_REQUIRED_MESSAGE}</span>`;
+    return;
+  }
+
   btn.disabled = true;
   btn.textContent = "验证中...";
   resultEl.hidden = false;
   resultEl.innerHTML = `<span class="vr-item vr-pending">正在测试...</span>`;
 
   try {
-    const resp = await fetch(`${KIMI_BASE_URL}/chat/completions`, {
+    const resp = await fetch(normalizeKimiEndpoint(proxyUrl), {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
       body: JSON.stringify({
@@ -321,6 +340,7 @@ const cancelSettingsBtn = document.getElementById("cancel-settings");
 const saveSettingsBtn   = document.getElementById("save-settings");
 const settingsModal     = document.getElementById("settings-modal");
 const kimiKeyInput      = document.getElementById("kimi-key-input");
+const proxyUrlInput     = document.getElementById("proxy-url-input");
 const validateBtn       = document.getElementById("validate-btn");
 
 // ===== 初始化 =====
@@ -523,6 +543,7 @@ document.querySelectorAll(".key-toggle").forEach((btn) => {
 
 saveSettingsBtn.addEventListener("click", () => {
   settings.kimiKey = kimiKeyInput.value.trim();
+  settings.proxyUrl = proxyUrlInput.value.trim();
   saveSettingsToStorage();
   updateStatusBar();
   closeModal();
@@ -531,6 +552,7 @@ saveSettingsBtn.addEventListener("click", () => {
 function openSettings() {
   kimiKeyInput.value = settings.kimiKey;
   kimiKeyInput.type = "password";
+  proxyUrlInput.value = settings.proxyUrl;
   document.getElementById("validate-result").hidden = true;
   settingsModal.hidden = false;
 }
