@@ -552,7 +552,7 @@ tbody td:first-child { font-weight: 500; color: #1e40af; }
   padding: 1px 6px;
   border-radius: 4px;
 }
-.label-badge.kimi { background: #dbeafe; color: #1d4ed8; }
+.label-badge.minimax { background: #dbeafe; color: #1d4ed8; }
 .key-input-wrap { position: relative; display: flex; align-items: center; }
 .form-input {
   width: 100%;

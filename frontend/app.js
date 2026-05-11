@@ -1,22 +1,11 @@
 // ===== AI 服务商配置 =====
-const KIMI_BASE_URL = "https://api.kimi.com/coding/v1";
-const KIMI_MODEL = "kimi-for-coding";
-const KIMI_MODEL_LABEL = "Kimi Code (K2.6)";
-const KIMI_PROXY_REQUIRED_MESSAGE = "Kimi Coding Plan API 不支持 GitHub Pages 直接跨域调用，请先填写代理地址。";
+const MINIMAX_BASE_URL = "https://api.minimax.chat/v1";
+const MINIMAX_MODEL = "MiniMax-M2.7";
+const MINIMAX_MODEL_LABEL = "MiniMax-M2.7";
 
 // ===== 设置 =====
-const SETTINGS_KEY = "tenderSettings_kimi_code_v1";
-let settings = { kimiKey: "", proxyUrl: "" };
-
-function normalizeKimiEndpoint(url) {
-  const trimmed = String(url || "").trim().replace(/\/+$/, "");
-  if (!trimmed) return "";
-  return trimmed.endsWith("/chat/completions") ? trimmed : `${trimmed}/chat/completions`;
-}
-
-function getKimiEndpoint() {
-  return normalizeKimiEndpoint(settings.proxyUrl) || `${KIMI_BASE_URL}/chat/completions`;
-}
+const SETTINGS_KEY = "tenderSettings_minimax_m27_v1";
+let settings = { minimaxKey: "" };
 
 function loadSettings() {
   try {
@@ -32,9 +21,9 @@ function saveSettingsToStorage() {
 function updateStatusBar() {
   const dot = document.getElementById("status-dot");
   const text = document.getElementById("status-text");
-  if (settings.kimiKey) {
+  if (settings.minimaxKey) {
     dot.className = "status-dot ok";
-    text.textContent = "Kimi 已配置";
+    text.textContent = "MiniMax 已配置";
   } else {
     dot.className = "status-dot warn";
     text.textContent = "未配置 API Key";
@@ -117,8 +106,7 @@ async function extractFileContent(file, onStatus) {
 
 // ===== AI API 调用 =====
 async function callAI(fileInfo, fields) {
-  if (!settings.kimiKey) throw new Error("请先配置 Kimi API Key");
-  if (!settings.proxyUrl) throw new Error(KIMI_PROXY_REQUIRED_MESSAGE);
+  if (!settings.minimaxKey) throw new Error("请先配置 MiniMax API Key");
 
   const fieldsStr = fields.join("、");
 
@@ -170,17 +158,16 @@ async function callAI(fileInfo, fields) {
     ];
   }
 
-  const resp = await fetch(getKimiEndpoint(), {
+  const resp = await fetch(`${MINIMAX_BASE_URL}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${settings.kimiKey}`,
+      Authorization: `Bearer ${settings.minimaxKey}`,
     },
     body: JSON.stringify({
-      model: KIMI_MODEL,
+      model: MINIMAX_MODEL,
       messages,
       max_tokens: 4096,
-      thinking: { type: "disabled" },
     }),
   });
 
@@ -199,21 +186,20 @@ async function callAI(fileInfo, fields) {
   const jsonStr = (start !== -1 && end > start) ? raw.slice(start, end) : raw;
 
   try {
-    return { result: JSON.parse(jsonStr), usedModel: data.model || KIMI_MODEL };
+    return { result: JSON.parse(jsonStr), usedModel: data.model || MINIMAX_MODEL };
   } catch (e) {
     const preview = raw.slice(0, 120).replace(/\n/g, " ");
     console.error("[JSON parse error]", e.message, "raw:", raw);
     return {
       result: fields.reduce((acc, f) => ({ ...acc, [f]: `解析失败: ${preview || "空响应"}` }), {}),
-      usedModel: data.model || KIMI_MODEL,
+      usedModel: data.model || MINIMAX_MODEL,
     };
   }
 }
 
 // ===== API 可用性验证 =====
 async function validateAPI() {
-  const key = kimiKeyInput.value.trim();
-  const proxyUrl = proxyUrlInput.value.trim();
+  const key = minimaxKeyInput.value.trim();
   const resultEl = document.getElementById("validate-result");
   const btn = document.getElementById("validate-btn");
 
@@ -223,37 +209,30 @@ async function validateAPI() {
     return;
   }
 
-  if (!proxyUrl) {
-    resultEl.hidden = false;
-    resultEl.innerHTML = `<span class="vr-item vr-error">${KIMI_PROXY_REQUIRED_MESSAGE}</span>`;
-    return;
-  }
-
   btn.disabled = true;
   btn.textContent = "验证中...";
   resultEl.hidden = false;
   resultEl.innerHTML = `<span class="vr-item vr-pending">正在测试...</span>`;
 
   try {
-    const resp = await fetch(normalizeKimiEndpoint(proxyUrl), {
+    const resp = await fetch(`${MINIMAX_BASE_URL}/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
       body: JSON.stringify({
-        model: KIMI_MODEL,
+        model: MINIMAX_MODEL,
         messages: [{ role: "user", content: "请回复 OK" }],
         max_tokens: 16,
-        thinking: { type: "disabled" },
       }),
     });
     const data = await resp.json().catch(() => ({}));
     if (resp.ok || data.choices) {
-      resultEl.innerHTML = `<span class="vr-item vr-ok">✓ ${KIMI_MODEL_LABEL}</span>`;
+      resultEl.innerHTML = `<span class="vr-item vr-ok">✓ ${MINIMAX_MODEL_LABEL}</span>`;
     } else {
       const msg = data.error?.message || data.message || `HTTP ${resp.status}`;
-      resultEl.innerHTML = `<span class="vr-item vr-error">✗ ${KIMI_MODEL_LABEL}：${msg}</span>`;
+      resultEl.innerHTML = `<span class="vr-item vr-error">✗ ${MINIMAX_MODEL_LABEL}：${msg}</span>`;
     }
   } catch (e) {
-    resultEl.innerHTML = `<span class="vr-item vr-error">✗ ${KIMI_MODEL_LABEL}：${e.message}</span>`;
+    resultEl.innerHTML = `<span class="vr-item vr-error">✗ ${MINIMAX_MODEL_LABEL}：${e.message}</span>`;
   }
 
   btn.disabled = false;
@@ -339,8 +318,7 @@ const closeSettingsBtn  = document.getElementById("close-settings");
 const cancelSettingsBtn = document.getElementById("cancel-settings");
 const saveSettingsBtn   = document.getElementById("save-settings");
 const settingsModal     = document.getElementById("settings-modal");
-const kimiKeyInput      = document.getElementById("kimi-key-input");
-const proxyUrlInput     = document.getElementById("proxy-url-input");
+const minimaxKeyInput   = document.getElementById("minimax-key-input");
 const validateBtn       = document.getElementById("validate-btn");
 
 // ===== 初始化 =====
@@ -422,7 +400,7 @@ fieldInput.addEventListener("keydown", (e) => { if (e.key === "Enter") addField(
 analyzeBtn.addEventListener("click", analyze);
 
 async function analyze() {
-  if (!settings.kimiKey) { openSettings(); return; }
+  if (!settings.minimaxKey) { openSettings(); return; }
   if (uploadedFiles.length === 0) { alert("请先上传招投标文件"); return; }
   if (fields.length === 0) { alert("请至少添加一个提取字段"); return; }
 
@@ -441,7 +419,7 @@ async function analyze() {
       const fileInfo = await extractFileContent(file, (msg) => {
         loadingSub.textContent = msg;
       });
-      loadingSub.textContent = `${file.name}（${KIMI_MODEL_LABEL} 提取字段中...）`;
+      loadingSub.textContent = `${file.name}（${MINIMAX_MODEL_LABEL} 提取字段中...）`;
       const aiResult = await callAI(fileInfo, fields);
       const { result, usedModel } = aiResult;
       const normalized = {};
@@ -542,17 +520,15 @@ document.querySelectorAll(".key-toggle").forEach((btn) => {
 });
 
 saveSettingsBtn.addEventListener("click", () => {
-  settings.kimiKey = kimiKeyInput.value.trim();
-  settings.proxyUrl = proxyUrlInput.value.trim();
+  settings.minimaxKey = minimaxKeyInput.value.trim();
   saveSettingsToStorage();
   updateStatusBar();
   closeModal();
 });
 
 function openSettings() {
-  kimiKeyInput.value = settings.kimiKey;
-  kimiKeyInput.type = "password";
-  proxyUrlInput.value = settings.proxyUrl;
+  minimaxKeyInput.value = settings.minimaxKey;
+  minimaxKeyInput.type = "password";
   document.getElementById("validate-result").hidden = true;
   settingsModal.hidden = false;
 }
