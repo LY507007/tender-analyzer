@@ -6,32 +6,35 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
   group: pages
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Pages
-        uses: actions/configure-pages@v4
+      - name: Publish frontend to gh-pages
+        shell: bash
+        run: |
+          set -euo pipefail
 
-      - name: Upload frontend as artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: ./frontend
+          rm -rf /tmp/tender-analyzer-pages
+          mkdir -p /tmp/tender-analyzer-pages
+          cp -R frontend/. /tmp/tender-analyzer-pages/
+          touch /tmp/tender-analyzer-pages/.nojekyll
 
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          cd /tmp/tender-analyzer-pages
+          git init
+          git checkout -b gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Deploy to GitHub Pages"
+          git remote add origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
+          git push --force origin gh-pages
